@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://password-manager-health-check.local/contracts/bff-checks.schema.json",
+  "title": "BffChecks",
+  "description": "Contracts for the Next.js BFF endpoints that the chat UI calls.",
+  "type": "object",
+  "definitions": {
+    "PostChecksRequest": {
+      "type": "object",
+      "required": ["password_count", "oldest_password_age_months"],
+      "additionalProperties": false,
+      "properties": {
+        "password_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "oldest_password_age_months": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 600
+        }
+      }
+    },
+    "ScoreSubmission": {
+      "type": "object",
+      "required": [
+        "id",
+        "score",
+        "band",
+        "recommendations",
+        "message",
+        "previous_score",
+        "created_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "band": {
+          "type": "string",
+          "enum": ["HEALTHY", "OKAY", "CRITICAL"]
+        },
+        "recommendations": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "required": ["id", "title"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" }
+            }
+          }
+        },
+        "message": { "type": "string" },
+        "previous_score": {
+          "description": "The score of the most recent prior submission for this visitor, or null if none.",
+          "anyOf": [
+            { "type": "integer", "minimum": 0, "maximum": 100 },
+            { "type": "null" }
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "GetHistoryResponse": {
+      "type": "object",
+      "required": ["history"],
+      "additionalProperties": false,
+      "properties": {
+        "history": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "required": ["id", "score", "band", "created_at"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+              "band": {
+                "type": "string",
+                "enum": ["HEALTHY", "OKAY", "CRITICAL"]
+              },
+              "created_at": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

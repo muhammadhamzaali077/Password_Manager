@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash *)",
+      "Bash(git checkout *)",
+      "Bash(SPECIFY_FEATURE=001-health-score-chat bash *)",
+      "Bash(uv --version)",
+      "Bash(pnpm --version)",
+      "Bash(corepack enable *)",
+      "Bash(corepack prepare *)",
+      "Bash(corepack pnpm *)",
+      "Bash(uv sync *)",
+      "Bash(uv run *)",
+      "Bash(PYTHONPATH=src uv run uvicorn agent.main:app --host 127.0.0.1 --port 8000)",
+      "Bash(netstat -ano)",
+      "Bash(PYTHONPATH=src uv run uvicorn agent.main:app --host 127.0.0.1 --port 8765)",
+      "Bash(curl -sf http://127.0.0.1:8765/healthz)",
+      "Bash(curl -sf http://127.0.0.1:3000 -o /dev/null)",
+      "Bash(curl -s http://127.0.0.1:8765/healthz)",
+      "Bash(curl -s -X POST http://127.0.0.1:8765/agent/score -H \"Content-Type: application/json\" -d '{\"password_count\":-3,\"oldest_password_age_months\":\"lots\"}')",
+      "Bash(curl -s -X POST http://127.0.0.1:8765/agent/score -H \"Content-Type: application/json\" -d '{\"password_count\":12,\"oldest_password_age_months\":18}')",
+      "Bash(PYTHONPATH=src uv run uvicorn agent.main:app --host 127.0.0.1 --port 8765 --reload)",
+      "Bash(awk '{print $NF}')",
+      "PowerShell(Get-CimInstance *)"
+    ]
+  }
+}

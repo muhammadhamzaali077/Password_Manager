@@ -1,0 +1,39 @@
+// Prisma schema for the Password Manager Health Check app.
+// See specs/001-health-score-chat/data-model.md for the source of truth.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Band {
+  HEALTHY
+  OKAY
+  CRITICAL
+}
+
+model Visitor {
+  id           String            @id @default(cuid())
+  sessionToken String            @unique
+  createdAt    DateTime          @default(now())
+  lastSeenAt   DateTime          @default(now())
+  submissions  ScoreSubmission[]
+}
+
+model ScoreSubmission {
+  id                      String   @id @default(cuid())
+  visitor                 Visitor  @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  visitorId               String
+  passwordCount           Int
+  oldestPasswordAgeMonths Int
+  score                   Int
+  band                    Band
+  recommendations         Json
+  createdAt               DateTime @default(now())
+
+  @@index([visitorId, createdAt(sort: Desc)])
+}

@@ -1,0 +1,47 @@
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Node / Next.js / pnpm ---
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+.pnpm-store/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# --- Python / FastAPI / uv ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+.eggs/
+*.egg-info/
+*.egg
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Prisma ---
+# generated client (re-runnable)
+frontend/prisma/migrations/dev.db
+frontend/prisma/.env
+
+# --- Logs / OS / Editors ---
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
