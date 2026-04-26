@@ -358,6 +358,7 @@ async def _run_chat_turn(messages: list[ChatMessage]) -> dict[str, Any]:
         *[{"role": m.role, "content": m.content} for m in messages],
     ]
 
+    logger.info("calling openai (turn=%d)", len(messages))
     first = await client.chat.completions.create(
         model=_AGENT_MODEL,
         messages=chat_messages,
@@ -367,6 +368,8 @@ async def _run_chat_turn(messages: list[ChatMessage]) -> dict[str, Any]:
     )
     choice = first.choices[0].message
     tool_calls = choice.tool_calls or []
+    logger.info("openai turn1: content_len=%d tool_calls=%d",
+                len(choice.content or ""), len(tool_calls))
 
     # No tool call -> the LLM is still gathering info. Return its reply.
     if not tool_calls:
@@ -378,8 +381,8 @@ async def _run_chat_turn(messages: list[ChatMessage]) -> dict[str, Any]:
     try:
         raw_args = json.loads(call.function.arguments or "{}")
         args = ToolArgs.model_validate(raw_args)
-    except (json.JSONDecodeError, ValidationError):
-        # Push the model to ask again in plain language.
+    except (json.JSONDecodeError, ValidationError) as exc:
+        logger.warning("tool args invalid: %s", exc)
         return {
             "type": "message",
             "content": (
@@ -393,24 +396,30 @@ async def _run_chat_turn(messages: list[ChatMessage]) -> dict[str, Any]:
         args.password_count, args.oldest_password_age_months, score, band
     )
 
-    # Hand the deterministic result back to the LLM for the final message.
+    # Build the follow-up call. The OpenAI API requires an assistant message
+    # with `content` AND `tool_calls` fields (`content` can be None) before
+    # the matching `tool` message. We reconstruct it explicitly so the
+    # message is well-formed regardless of SDK version.
+    assistant_with_tool_call: dict[str, Any] = {
+        "role": "assistant",
+        "content": choice.content,  # may be None — OpenAI accepts that
+        "tool_calls": [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {
+                    "name": call.function.name,
+                    "arguments": call.function.arguments,
+                },
+            }
+        ],
+    }
+
     follow_up = await client.chat.completions.create(
         model=_AGENT_MODEL,
         messages=[
             *chat_messages,
-            {
-                "role": "assistant",
-                "tool_calls": [
-                    {
-                        "id": call.id,
-                        "type": "function",
-                        "function": {
-                            "name": call.function.name,
-                            "arguments": call.function.arguments,
-                        },
-                    }
-                ],
-            },
+            assistant_with_tool_call,
             {
                 "role": "tool",
                 "tool_call_id": call.id,
@@ -431,6 +440,7 @@ async def _run_chat_turn(messages: list[ChatMessage]) -> dict[str, Any]:
     final = (follow_up.choices[0].message.content or "").strip() or (
         "Nice work — you're on the way. Try the top fix below as your next step."
     )
+    logger.info("openai turn2 done: msg_len=%d", len(final))
 
     return {
         "type": "result",
