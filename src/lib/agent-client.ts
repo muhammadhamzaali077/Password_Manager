@@ -27,7 +27,26 @@ export interface AgentEnvelopeError {
 const AGENT_REQUEST_TIMEOUT_MS = 18_000;
 
 /**
- * Call the FastAPI agent's `POST /agent/score` endpoint.
+ * Resolve the agent URL.
+ *
+ * - `AGENT_URL` (set in local dev or for an externally-hosted agent) wins.
+ * - On Vercel we fall back to the same deployment via `VERCEL_URL`.
+ * - Otherwise default to the local FastAPI dev server on `:8765`.
+ *
+ * @returns The absolute URL to POST the score request to.
+ */
+function resolveAgentUrl(): string {
+  if (process.env.AGENT_URL) {
+    return `${process.env.AGENT_URL.replace(/\/+$/, "")}/api/score`;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}/api/score`;
+  }
+  return "http://127.0.0.1:8765/api/score";
+}
+
+/**
+ * Call the password-health agent's `POST /api/score` endpoint.
  *
  * @param payload - The validated request body.
  * @returns The parsed structured-JSON response on success.
@@ -37,8 +56,7 @@ const AGENT_REQUEST_TIMEOUT_MS = 18_000;
 export async function requestScore(
   payload: PostChecksRequest,
 ): Promise<AgentScoreResponse> {
-  const baseUrl = process.env.AGENT_URL ?? "http://127.0.0.1:8000";
-  const url = `${baseUrl.replace(/\/+$/, "")}/agent/score`;
+  const url = resolveAgentUrl();
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), AGENT_REQUEST_TIMEOUT_MS);

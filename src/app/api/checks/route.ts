@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requestScore } from "@/lib/agent-client";
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest) {
       oldestPasswordAgeMonths: parsed.data.oldest_password_age_months,
       score: agentResponse.score,
       band: agentResponse.band,
-      recommendations: agentResponse.recommendations,
+      recommendations: agentResponse.recommendations as unknown as Prisma.InputJsonValue,
     },
   });
 

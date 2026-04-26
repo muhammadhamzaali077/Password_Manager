@@ -28,7 +28,13 @@
       "Bash(git -C 'D:/AI in Data Security/Password_Manager' commit -m ' *)",
       "Bash(git -C \"D:/AI in Data Security/Password_Manager\" push origin 001-health-score-chat)",
       "Bash(git pull *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(shopt -s dotglob nullglob)",
+      "Bash(mv frontend/* .)",
+      "Bash(shopt -u dotglob nullglob)",
+      "PowerShell(Get-Process | Where-Object { $_.Path -and \\($_.Name -match 'node|tsserver|eslint|next'\\) } | Select-Object Id, Name, Path | Format-Table -AutoSize)",
+      "PowerShell(Move-Item *)",
+      "PowerShell(Stop-Process *)"
     ]
   }
 }
