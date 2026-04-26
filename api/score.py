@@ -1,27 +1,26 @@
-"""Vercel Python serverless function: POST /api/score.
+"""Vercel Python serverless function: POST /api/score (chat endpoint).
 
-Single-file FastAPI app that exposes the password-health agent. Vercel
-routes any request to ``/api/score`` to this file's ``app`` (it strips the
-``/api/score`` prefix), so the FastAPI route is mounted at ``/``.
+This is a real conversational agent. The frontend POSTs the running
+message history; the LLM drives the conversation, asking the user about
+how many passwords they manage and the age of the oldest one. Once it
+has both, it calls the ``compute_health_score`` tool — and only then
+does the function return a result payload (otherwise it returns the
+next assistant message).
 
-Constitution III: every input is validated by Pydantic. Constitution IV:
-every error returns ``{"code": ..., "message": ...}``. Constitution VII:
-every successful response is a typed JSON body matching :class:`AgentScoreResponse`.
-
-The whole agent (schemas, scoring, recommendations, prompts, route) is
-inlined here on purpose: Vercel's Python runtime treats every top-level
-``.py`` in ``api/`` as a separate function, so cross-file imports under
-``api/`` are fragile. Keeping it in one file is bullet-proof.
+Constitution III: every tool input is validated by Pydantic.
+Constitution IV: every error returns ``{"code": ..., "message": ...}``.
+Constitution VII: every successful response is structured JSON.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Final
+from typing import Any, Callable, Final, Literal
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -61,7 +60,7 @@ def error_response(code: str, status: int, message: str | None = None) -> JSONRe
 
 
 # ---------------------------------------------------------------------------
-# Pydantic schemas (mirrors contracts/agent-score.schema.json)
+# Pydantic schemas
 # ---------------------------------------------------------------------------
 
 
@@ -73,8 +72,23 @@ class Band(str, Enum):
     CRITICAL = "CRITICAL"
 
 
-class HealthCheckRequest(BaseModel):
-    """Inbound request payload."""
+class ChatMessage(BaseModel):
+    """One turn of the conversation."""
+
+    model_config = ConfigDict(extra="forbid")
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=2_000)
+
+
+class ChatRequest(BaseModel):
+    """Inbound chat payload."""
+
+    model_config = ConfigDict(extra="forbid")
+    messages: list[ChatMessage] = Field(min_length=1, max_length=20)
+
+
+class ToolArgs(BaseModel):
+    """Arguments the LLM must supply to ``compute_health_score``."""
 
     model_config = ConfigDict(extra="forbid")
     password_count: int = Field(ge=0, le=10_000)
@@ -87,16 +101,6 @@ class Recommendation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str = Field(min_length=1, max_length=64)
     title: str = Field(min_length=1, max_length=120)
-
-
-class AgentScoreResponse(BaseModel):
-    """Outbound response payload."""
-
-    model_config = ConfigDict(extra="forbid")
-    score: int = Field(ge=0, le=100)
-    band: Band
-    recommendations: list[Recommendation] = Field(max_length=5)
-    message: str = Field(min_length=1, max_length=400)
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +141,7 @@ def compute_score(password_count: int, oldest_password_age_months: int) -> tuple
 
 
 # ---------------------------------------------------------------------------
-# Recommendation catalogue (research §R6)
+# Recommendation catalogue
 # ---------------------------------------------------------------------------
 
 Predicate = Callable[[int, int, int, Band], bool]
@@ -241,47 +245,78 @@ def pick_recommendations(
 
 
 # ---------------------------------------------------------------------------
-# Encouraging-tone agent prompt
+# Agent prompt + tool spec
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """You are a warm, concise coach who helps people feel good
-about looking after their passwords. You never scold or use harsh words.
-You keep your tone encouraging in every band — including when the score is
-low — and frame each issue as a small next step the person can take.
+SYSTEM_PROMPT = """You are a warm, concise password-health coach in a chat
+app. Your job is to learn two things from the user:
+  1. Roughly how many passwords they manage right now (an integer 0..10000).
+  2. The age of their oldest password, normalized to whole months
+     (0..600). Accept casual answers like "a few years", "since 2018",
+     "maybe 18 months" — convert to months yourself.
 
-You will be given a numeric score (0..100), a band (HEALTHY, OKAY, or
-CRITICAL), the user's reported password count and oldest-password age in
-months, and a short list of selected recommendations (already filtered and
-ranked).
+Conversation rules:
+- Stay encouraging in EVERY band. Never use words like "fail", "danger",
+  "hacked", "stupid", "shame", or "idiot".
+- Keep replies to 1–2 short sentences.
+- If the user types something off-topic (asks what the app does, says
+  hello, asks general security questions), answer briefly in one
+  sentence, then steer back to the two questions.
+- If a number is ambiguous ("a lot", "many"), ask politely for a rough
+  estimate.
+- Never ask for the user's actual passwords, account names, or any
+  personal info beyond the two numbers.
 
-Return ONLY structured JSON matching the response schema. The score, band,
-and recommendations you receive are authoritative — copy them verbatim into
-your response. Your job is to write the ``message`` field: 1–3 sentences,
-second person, encouraging, acknowledging the score and pointing to the
-first recommendation as a friendly next step. Never invent new
-recommendations. Never include URLs, code, or technical jargon.
+When — and only when — you have confident integer values for BOTH, call
+the ``compute_health_score`` tool with them. Do not call the tool until
+you have both values. Do not invent values. Do not call the tool more
+than once per session.
+
+After the tool returns its result, the runtime will end the turn for
+you with a final encouraging message — you don't need to write one.
 """
 
+_TOOL_SPEC: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "compute_health_score",
+            "description": (
+                "Compute the user's password-health score once you have "
+                "confirmed integer values for password_count and "
+                "oldest_password_age_months."
+            ),
+            "parameters": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["password_count", "oldest_password_age_months"],
+                "properties": {
+                    "password_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10000,
+                        "description": "Number of passwords the user manages.",
+                    },
+                    "oldest_password_age_months": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 600,
+                        "description": "Age in whole months of the oldest password.",
+                    },
+                },
+            },
+        },
+    }
+]
 
-def build_user_prompt(
-    *,
-    password_count: int,
-    oldest_password_age_months: int,
-    score: int,
-    band: Band,
-    recommendations: list[Recommendation],
-) -> str:
-    """Format the user-side prompt that primes the JSON response."""
-    rec_lines = (
-        "\n".join(f"  - {r.id}: {r.title}" for r in recommendations) or "  - (none)"
-    )
-    return (
-        f"password_count: {password_count}\n"
-        f"oldest_password_age_months: {oldest_password_age_months}\n"
-        f"score: {score}\n"
-        f"band: {band.value}\n"
-        f"recommendations:\n{rec_lines}\n"
-    )
+# Final-message instruction sent after the tool result lands.
+_FINAL_MESSAGE_INSTRUCTION = (
+    "Now write a short (1-2 sentence), warm, encouraging message for the "
+    "user that acknowledges their score and points to the top recommendation "
+    "as a friendly next step. Do not list every recommendation — the UI shows "
+    "them already. Do not include the numeric score in the text; the UI shows "
+    "that too."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -291,9 +326,9 @@ def build_user_prompt(
 logger = logging.getLogger("agent.score")
 
 _AGENT_MODEL = "gpt-4o-mini"
-_AGENT_TIMEOUT_SECONDS = float(os.getenv("AGENT_TIMEOUT_SECONDS", "15"))
+_AGENT_TIMEOUT_SECONDS = float(os.getenv("AGENT_TIMEOUT_SECONDS", "20"))
 
-app = FastAPI(title="Password Manager Health Agent", version="0.1.0")
+app = FastAPI(title="Password Manager Health Agent", version="0.2.0")
 
 _allowed_origin = os.getenv("ALLOWED_ORIGIN", "*")
 app.add_middleware(
@@ -305,97 +340,137 @@ app.add_middleware(
 )
 
 
-async def _run_llm_message(
-    *,
-    password_count: int,
-    oldest_password_age_months: int,
-    score: int,
-    band: Band,
-    recommendations: list[Recommendation],
-) -> AgentScoreResponse:
-    """Invoke the OpenAI SDK with structured output and return a typed response.
+async def _run_chat_turn(messages: list[ChatMessage]) -> dict[str, Any]:
+    """Run one conversation turn against OpenAI and return a typed reply.
 
-    Uses ``client.beta.chat.completions.parse`` with the Pydantic response
-    model — that's the SDK's native path for guaranteed structured JSON
-    (Constitution VII), and it's significantly lighter than the full
-    Agents SDK so the Vercel function fits inside the 250 MB cap.
+    Returns a dict shaped like one of:
+      ``{"type": "message", "content": str}``
+      ``{"type": "result", "score": int, "band": str,
+         "recommendations": [...], "password_count": int,
+         "oldest_password_age_months": int, "message": str}``
     """
     from openai import AsyncOpenAI  # local import; SDK is heavy
 
     client = AsyncOpenAI()
-    user_prompt = build_user_prompt(
-        password_count=password_count,
-        oldest_password_age_months=oldest_password_age_months,
-        score=score,
-        band=band,
-        recommendations=recommendations,
+
+    chat_messages: list[dict[str, Any]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        *[{"role": m.role, "content": m.content} for m in messages],
+    ]
+
+    first = await client.chat.completions.create(
+        model=_AGENT_MODEL,
+        messages=chat_messages,
+        tools=_TOOL_SPEC,
+        tool_choice="auto",
+        temperature=0.4,
+    )
+    choice = first.choices[0].message
+    tool_calls = choice.tool_calls or []
+
+    # No tool call -> the LLM is still gathering info. Return its reply.
+    if not tool_calls:
+        return {"type": "message", "content": (choice.content or "").strip() or
+                "Could you tell me how many passwords you have right now?"}
+
+    # The LLM decided it has both inputs. Validate the call.
+    call = tool_calls[0]
+    try:
+        raw_args = json.loads(call.function.arguments or "{}")
+        args = ToolArgs.model_validate(raw_args)
+    except (json.JSONDecodeError, ValidationError):
+        # Push the model to ask again in plain language.
+        return {
+            "type": "message",
+            "content": (
+                "Hmm, I need a clearer number. Could you tell me roughly "
+                "how many passwords you have, and how old the oldest one is?"
+            ),
+        }
+
+    score, band = compute_score(args.password_count, args.oldest_password_age_months)
+    recommendations = pick_recommendations(
+        args.password_count, args.oldest_password_age_months, score, band
     )
 
-    completion = await client.beta.chat.completions.parse(
+    # Hand the deterministic result back to the LLM for the final message.
+    follow_up = await client.chat.completions.create(
         model=_AGENT_MODEL,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
+            *chat_messages,
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": call.id,
+                        "type": "function",
+                        "function": {
+                            "name": call.function.name,
+                            "arguments": call.function.arguments,
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": call.id,
+                "content": json.dumps(
+                    {
+                        "score": score,
+                        "band": band.value,
+                        "top_recommendation": (
+                            recommendations[0].title if recommendations else None
+                        ),
+                    }
+                ),
+            },
+            {"role": "system", "content": _FINAL_MESSAGE_INSTRUCTION},
         ],
-        response_format=AgentScoreResponse,
+        temperature=0.6,
     )
-    parsed = completion.choices[0].message.parsed
-    if parsed is None:
-        raise ValueError("LLM returned no parsed structured output")
-    return parsed
+    final = (follow_up.choices[0].message.content or "").strip() or (
+        "Nice work — you're on the way. Try the top fix below as your next step."
+    )
+
+    return {
+        "type": "result",
+        "score": score,
+        "band": band.value,
+        "recommendations": [r.model_dump() for r in recommendations],
+        "password_count": args.password_count,
+        "oldest_password_age_months": args.oldest_password_age_months,
+        "message": final,
+    }
 
 
 @app.post("/")
-async def post_score(request: Request) -> Any:
-    """Handle the POST request. Vercel mounts this app at ``/api/score``."""
+async def post_chat(request: Request) -> Any:
+    """Handle the POST. Vercel mounts this app at ``/api/score``."""
     try:
         raw = await request.json()
     except Exception:
         return error_response(INVALID_INPUT, status=400)
 
     try:
-        payload = HealthCheckRequest.model_validate(raw)
+        payload = ChatRequest.model_validate(raw)
     except ValidationError:
         return error_response(INVALID_INPUT, status=400)
-
-    score, band = compute_score(payload.password_count, payload.oldest_password_age_months)
-    recommendations = pick_recommendations(
-        payload.password_count,
-        payload.oldest_password_age_months,
-        score,
-        band,
-    )
 
     if not os.getenv("OPENAI_API_KEY"):
         logger.error("OPENAI_API_KEY missing")
         return error_response(INTERNAL_ERROR, status=500)
 
     try:
-        llm_result = await asyncio.wait_for(
-            _run_llm_message(
-                password_count=payload.password_count,
-                oldest_password_age_months=payload.oldest_password_age_months,
-                score=score,
-                band=band,
-                recommendations=recommendations,
-            ),
-            timeout=_AGENT_TIMEOUT_SECONDS,
+        result = await asyncio.wait_for(
+            _run_chat_turn(payload.messages), timeout=_AGENT_TIMEOUT_SECONDS
         )
     except asyncio.TimeoutError:
         return error_response(AGENT_TIMEOUT, status=504)
-    except ValidationError:
-        return error_response(AGENT_FORMAT_ERROR, status=502)
     except Exception:
         logger.exception("agent invocation failed")
         return error_response(INTERNAL_ERROR, status=500)
 
-    safe = AgentScoreResponse(
-        score=score,
-        band=band,
-        recommendations=recommendations,
-        message=llm_result.message,
-    )
-    return safe.model_dump(mode="json")
+    return result
 
 
 @app.get("/healthz")

@@ -1,23 +1,28 @@
 import { Prisma } from "@prisma/client";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { requestScore } from "@/lib/agent-client";
+import { requestChat, type ChatTurnResponse } from "@/lib/agent-client";
 import { toEnvelope } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateVisitor } from "@/lib/session";
-import { PostChecksRequestSchema } from "@/lib/validation";
+import { ChatRequestSchema } from "@/lib/validation";
 
 const MAX_HISTORY_PER_VISITOR = 50;
 
 /**
- * `POST /api/checks` — accept the validated chat answers, ask the agent for
- * a structured score, persist it for the visitor, and return the BFF
- * response shape defined in `contracts/bff-checks.schema.json`.
+ * `POST /api/checks` — chat-style entrypoint.
  *
- * @param request - The incoming Next.js request. The body MUST conform to
- *   `PostChecksRequestSchema`.
- * @returns A JSON response: success body on 200, `{ code, message }` envelope
- *   on any failure.
+ * Forwards the running message history to the Python agent. If the agent
+ * comes back with a `result` (it called the score tool), the BFF persists
+ * a ScoreSubmission, prunes old rows, and returns an enriched payload
+ * that includes the visitor's `previous_score` for US2 acknowledgements.
+ * Otherwise it just relays the chat reply to the client.
+ *
+ * @param request - The incoming Next.js request. Body must conform to
+ *   `ChatRequestSchema` (`{ messages: ChatMessage[] }`).
+ * @returns On success: either a `{type: "message"}` chat reply or a
+ *   `{type: "result"}` score result. On failure: a friendly error
+ *   envelope `{code, message}`.
  */
 export async function POST(request: NextRequest) {
   let raw: unknown;
@@ -27,21 +32,14 @@ export async function POST(request: NextRequest) {
     return toEnvelope("INVALID_INPUT", 400);
   }
 
-  const parsed = PostChecksRequestSchema.safeParse(raw);
+  const parsed = ChatRequestSchema.safeParse(raw);
   if (!parsed.success) return toEnvelope("INVALID_INPUT", 400);
 
   const { visitorId } = await getOrCreateVisitor();
 
-  // Fetch the most recent prior submission BEFORE inserting (US2: previous_score).
-  const previous = await prisma.scoreSubmission.findFirst({
-    where: { visitorId },
-    orderBy: { createdAt: "desc" },
-    select: { score: true },
-  });
-
-  let agentResponse;
+  let agentResponse: ChatTurnResponse;
   try {
-    agentResponse = await requestScore(parsed.data);
+    agentResponse = await requestChat({ messages: parsed.data.messages });
   } catch (err) {
     const e = err as { code?: string; message?: string };
     const code = (e.code ?? "INTERNAL_ERROR") as
@@ -63,18 +61,31 @@ export async function POST(request: NextRequest) {
     return toEnvelope(code, status);
   }
 
+  if (agentResponse.type === "message") {
+    return NextResponse.json({
+      type: "message",
+      content: agentResponse.content,
+    });
+  }
+
+  // Result path — persist and enrich.
+  const previous = await prisma.scoreSubmission.findFirst({
+    where: { visitorId },
+    orderBy: { createdAt: "desc" },
+    select: { score: true },
+  });
+
   const submission = await prisma.scoreSubmission.create({
     data: {
       visitorId,
-      passwordCount: parsed.data.password_count,
-      oldestPasswordAgeMonths: parsed.data.oldest_password_age_months,
+      passwordCount: agentResponse.password_count,
+      oldestPasswordAgeMonths: agentResponse.oldest_password_age_months,
       score: agentResponse.score,
       band: agentResponse.band,
       recommendations: agentResponse.recommendations as unknown as Prisma.InputJsonValue,
     },
   });
 
-  // Prune to the 50 newest submissions per visitor (research §R9).
   const keepers = await prisma.scoreSubmission.findMany({
     where: { visitorId },
     orderBy: { createdAt: "desc" },
@@ -89,6 +100,7 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json({
+    type: "result",
     id: submission.id,
     score: agentResponse.score,
     band: agentResponse.band,

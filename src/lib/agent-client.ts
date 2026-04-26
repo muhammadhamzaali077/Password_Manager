@@ -1,5 +1,3 @@
-import type { PostChecksRequest } from "@/lib/validation";
-
 export type Band = "HEALTHY" | "OKAY" | "CRITICAL";
 
 export interface Recommendation {
@@ -7,12 +5,31 @@ export interface Recommendation {
   title: string;
 }
 
-export interface AgentScoreResponse {
-  score: number;
-  band: Band;
-  recommendations: Recommendation[];
-  message: string;
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
 }
+
+export interface ChatRequest {
+  messages: ChatMessage[];
+}
+
+/**
+ * The Python agent returns one of two shapes per turn — either a chat
+ * message that continues the conversation, or a `result` once the
+ * deterministic score has been computed.
+ */
+export type ChatTurnResponse =
+  | { type: "message"; content: string }
+  | {
+      type: "result";
+      score: number;
+      band: Band;
+      recommendations: Recommendation[];
+      message: string;
+      password_count: number;
+      oldest_password_age_months: number;
+    };
 
 export interface AgentEnvelopeError {
   code:
@@ -24,7 +41,7 @@ export interface AgentEnvelopeError {
   message: string;
 }
 
-const AGENT_REQUEST_TIMEOUT_MS = 18_000;
+const AGENT_REQUEST_TIMEOUT_MS = 25_000;
 
 /**
  * Resolve the agent URL.
@@ -33,7 +50,7 @@ const AGENT_REQUEST_TIMEOUT_MS = 18_000;
  * - On Vercel we fall back to the same deployment via `VERCEL_URL`.
  * - Otherwise default to the local FastAPI dev server on `:8765`.
  *
- * @returns The absolute URL to POST the score request to.
+ * @returns The absolute URL to POST the chat request to.
  */
 function resolveAgentUrl(): string {
   if (process.env.AGENT_URL) {
@@ -46,18 +63,15 @@ function resolveAgentUrl(): string {
 }
 
 /**
- * Call the password-health agent's `POST /api/score` endpoint.
+ * Send the running chat history to the Python agent and parse the reply.
  *
- * @param payload - The validated request body.
- * @returns The parsed structured-JSON response on success.
- * @throws An object matching {@link AgentEnvelopeError} when the upstream
- *   returns a non-2xx; throws a generic Error on transport failure.
+ * @param payload - The chat request body (`{ messages }`).
+ * @returns A typed {@link ChatTurnResponse} on success.
+ * @throws An object matching {@link AgentEnvelopeError} on non-2xx, or a
+ *   timeout / generic envelope on transport failure.
  */
-export async function requestScore(
-  payload: PostChecksRequest,
-): Promise<AgentScoreResponse> {
+export async function requestChat(payload: ChatRequest): Promise<ChatTurnResponse> {
   const url = resolveAgentUrl();
-
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), AGENT_REQUEST_TIMEOUT_MS);
 
@@ -71,20 +85,22 @@ export async function requestScore(
     });
 
     const body = (await response.json().catch(() => null)) as
-      | AgentScoreResponse
+      | ChatTurnResponse
       | AgentEnvelopeError
       | null;
 
     if (!response.ok) {
       if (body && "code" in body) throw body;
-      throw { code: "INTERNAL_ERROR", message: "Upstream returned no body." } satisfies AgentEnvelopeError;
+      throw {
+        code: "INTERNAL_ERROR",
+        message: "Upstream returned no body.",
+      } satisfies AgentEnvelopeError;
     }
 
     if (
       !body ||
-      typeof (body as AgentScoreResponse).score !== "number" ||
-      typeof (body as AgentScoreResponse).band !== "string" ||
-      !Array.isArray((body as AgentScoreResponse).recommendations)
+      ((body as ChatTurnResponse).type !== "message" &&
+        (body as ChatTurnResponse).type !== "result")
     ) {
       throw {
         code: "AGENT_FORMAT_ERROR",
@@ -92,13 +108,19 @@ export async function requestScore(
       } satisfies AgentEnvelopeError;
     }
 
-    return body as AgentScoreResponse;
+    return body as ChatTurnResponse;
   } catch (err) {
     if (err && typeof err === "object" && "code" in err) throw err;
     if ((err as Error)?.name === "AbortError") {
-      throw { code: "AGENT_TIMEOUT", message: "Upstream timed out." } satisfies AgentEnvelopeError;
+      throw {
+        code: "AGENT_TIMEOUT",
+        message: "Upstream timed out.",
+      } satisfies AgentEnvelopeError;
     }
-    throw { code: "INTERNAL_ERROR", message: "Upstream request failed." } satisfies AgentEnvelopeError;
+    throw {
+      code: "INTERNAL_ERROR",
+      message: "Upstream request failed.",
+    } satisfies AgentEnvelopeError;
   } finally {
     clearTimeout(timer);
   }
