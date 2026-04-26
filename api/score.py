@@ -453,9 +453,15 @@ async def _run_chat_turn(messages: list[ChatMessage]) -> dict[str, Any]:
     }
 
 
-@app.post("/")
+@app.post("/api/score")
 async def post_chat(request: Request) -> Any:
-    """Handle the POST. Vercel mounts this app at ``/api/score``."""
+    """Handle the POST.
+
+    Vercel forwards the full URL path (``/api/score``) into the ASGI
+    app. The route below matches that path directly so the same code
+    works locally (``POST http://127.0.0.1:8765/api/score``) and on
+    Vercel without any prefix manipulation.
+    """
     try:
         raw = await request.json()
     except Exception:
@@ -483,9 +489,9 @@ async def post_chat(request: Request) -> Any:
     return result
 
 
-@app.get("/healthz")
+@app.get("/api/score/healthz")
 async def healthz() -> dict[str, str]:
-    """Liveness probe."""
+    """Liveness probe at ``/api/score/healthz``."""
     return {"status": "ok"}
 
 

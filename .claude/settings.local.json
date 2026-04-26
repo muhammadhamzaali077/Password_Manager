@@ -36,7 +36,11 @@
       "PowerShell(Move-Item *)",
       "PowerShell(Stop-Process *)",
       "Bash(python -c \"import ast; ast.parse\\(open\\('api/score.py'\\).read\\(\\)\\); print\\('syntax ok'\\)\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('api/score.py'\\).read\\(\\)\\); print\\('python ok'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('api/score.py'\\).read\\(\\)\\); print\\('python ok'\\)\")",
+      "Bash(curl -sS -o /tmp/h.json -w \"status=%{http_code}\\\\n\" https://password-manager-liard-two.vercel.app/api/history)",
+      "Read(//tmp/**)",
+      "Bash(curl -sS -o /tmp/s.json -w \"status=%{http_code}\\\\n\" -X POST https://password-manager-liard-two.vercel.app/api/score -H \"Content-Type: application/json\" -d '{\"messages\":[{\"role\":\"assistant\",\"content\":\"hi\"},{\"role\":\"user\",\"content\":\"hello\"}]}')",
+      "Bash(curl -sS -o /tmp/c.json -w \"status=%{http_code}\\\\n\" -X POST https://password-manager-liard-two.vercel.app/api/checks -H \"Content-Type: application/json\" -d '{\"messages\":[{\"role\":\"assistant\",\"content\":\"hi\"},{\"role\":\"user\",\"content\":\"hello\"}]}')"
     ]
   }
 }
