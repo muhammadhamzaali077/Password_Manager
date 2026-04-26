@@ -21,7 +21,12 @@
       "Bash(curl -s -X POST http://127.0.0.1:8765/agent/score -H \"Content-Type: application/json\" -d '{\"password_count\":12,\"oldest_password_age_months\":18}')",
       "Bash(PYTHONPATH=src uv run uvicorn agent.main:app --host 127.0.0.1 --port 8765 --reload)",
       "Bash(awk '{print $NF}')",
-      "PowerShell(Get-CimInstance *)"
+      "PowerShell(Get-CimInstance *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git -C \"D:/AI in Data Security/Password_Manager\" add frontend/src/components/score/HistoryList.tsx)",
+      "Bash(git -C 'D:/AI in Data Security/Password_Manager' commit -m ' *)",
+      "Bash(git -C \"D:/AI in Data Security/Password_Manager\" push origin 001-health-score-chat)"
     ]
   }
 }
