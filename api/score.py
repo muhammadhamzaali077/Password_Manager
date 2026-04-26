@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Final
@@ -314,13 +313,16 @@ async def _run_llm_message(
     band: Band,
     recommendations: list[Recommendation],
 ) -> AgentScoreResponse:
-    """Invoke the OpenAI Agents SDK and return a structured response.
+    """Invoke the OpenAI SDK with structured output and return a typed response.
 
-    Imported locally so app startup doesn't pay the SDK's import cost
-    until the first invocation actually needs it.
+    Uses ``client.beta.chat.completions.parse`` with the Pydantic response
+    model — that's the SDK's native path for guaranteed structured JSON
+    (Constitution VII), and it's significantly lighter than the full
+    Agents SDK so the Vercel function fits inside the 250 MB cap.
     """
-    from agents import Agent, Runner  # type: ignore  # heavy import
+    from openai import AsyncOpenAI  # local import; SDK is heavy
 
+    client = AsyncOpenAI()
     user_prompt = build_user_prompt(
         password_count=password_count,
         oldest_password_age_months=oldest_password_age_months,
@@ -328,14 +330,19 @@ async def _run_llm_message(
         band=band,
         recommendations=recommendations,
     )
-    agent = Agent(
-        name="PasswordHealthCoach",
-        instructions=SYSTEM_PROMPT,
+
+    completion = await client.beta.chat.completions.parse(
         model=_AGENT_MODEL,
-        output_type=AgentScoreResponse,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        response_format=AgentScoreResponse,
     )
-    result = await Runner.run(agent, input=user_prompt)
-    return result.final_output
+    parsed = completion.choices[0].message.parsed
+    if parsed is None:
+        raise ValueError("LLM returned no parsed structured output")
+    return parsed
 
 
 @app.post("/")

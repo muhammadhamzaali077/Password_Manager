@@ -34,7 +34,8 @@
       "Bash(shopt -u dotglob nullglob)",
       "PowerShell(Get-Process | Where-Object { $_.Path -and \\($_.Name -match 'node|tsserver|eslint|next'\\) } | Select-Object Id, Name, Path | Format-Table -AutoSize)",
       "PowerShell(Move-Item *)",
-      "PowerShell(Stop-Process *)"
+      "PowerShell(Stop-Process *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('api/score.py'\\).read\\(\\)\\); print\\('syntax ok'\\)\")"
     ]
   }
 }
