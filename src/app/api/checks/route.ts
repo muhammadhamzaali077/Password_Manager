@@ -115,9 +115,14 @@ export async function POST(request: NextRequest) {
       created_at: submission.createdAt.toISOString(),
     });
   } catch (err) {
-    // Anything escapes here gets logged for Vercel function logs and
-    // returned as the user-safe envelope (Constitution IV).
+    // DEBUG: expose the underlying error message so we can diagnose the
+    // current Vercel deploy failure. Restore toEnvelope("INTERNAL_ERROR", 500)
+    // before considering this production-ready.
     console.error("/api/checks failed:", err);
-    return toEnvelope("INTERNAL_ERROR", 500);
+    const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    return NextResponse.json(
+      { code: "INTERNAL_ERROR", message: `[debug] ${detail}` },
+      { status: 500 },
+    );
   }
 }

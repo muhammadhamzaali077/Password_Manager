@@ -42,7 +42,10 @@
       "Bash(curl -sS -o /tmp/s.json -w \"status=%{http_code}\\\\n\" -X POST https://password-manager-liard-two.vercel.app/api/score -H \"Content-Type: application/json\" -d '{\"messages\":[{\"role\":\"assistant\",\"content\":\"hi\"},{\"role\":\"user\",\"content\":\"hello\"}]}')",
       "Bash(curl -sS -o /tmp/c.json -w \"status=%{http_code}\\\\n\" -X POST https://password-manager-liard-two.vercel.app/api/checks -H \"Content-Type: application/json\" -d '{\"messages\":[{\"role\":\"assistant\",\"content\":\"hi\"},{\"role\":\"user\",\"content\":\"hello\"}]}')",
       "Bash(curl -sS -X POST https://password-manager-liard-two.vercel.app/api/score -H \"Content-Type: application/json\" -d '{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}')",
-      "Bash(curl -sS -X POST https://password-manager-liard-two.vercel.app/api/score -H \"Content-Type: application/json\" -d '{\"messages\":[{\"role\":\"assistant\",\"content\":\"Hi! Roughly how many passwords do you have?\"},{\"role\":\"user\",\"content\":\"about 12\"},{\"role\":\"assistant\",\"content\":\"Got it. And about how old is the oldest one?\"},{\"role\":\"user\",\"content\":\"around 18 months\"}]}')"
+      "Bash(curl -sS -X POST https://password-manager-liard-two.vercel.app/api/score -H \"Content-Type: application/json\" -d '{\"messages\":[{\"role\":\"assistant\",\"content\":\"Hi! Roughly how many passwords do you have?\"},{\"role\":\"user\",\"content\":\"about 12\"},{\"role\":\"assistant\",\"content\":\"Got it. And about how old is the oldest one?\"},{\"role\":\"user\",\"content\":\"around 18 months\"}]}')",
+      "Bash(curl -sS -o /tmp/c1.json -w \"status=%{http_code}\\\\n\" -X POST https://password-manager-liard-two.vercel.app/api/checks -H \"Content-Type: application/json\" -d '{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}')",
+      "Bash(curl -sS -o /tmp/c2.json -w \"status=%{http_code}\\\\n\" -X POST https://password-manager-liard-two.vercel.app/api/checks -H \"Content-Type: application/json\" -d '{\"messages\":[{\"role\":\"assistant\",\"content\":\"Hi! Roughly how many passwords do you have?\"},{\"role\":\"user\",\"content\":\"about 12\"},{\"role\":\"assistant\",\"content\":\"Got it. And about how old is the oldest one?\"},{\"role\":\"user\",\"content\":\"around 18 months\"}]}')",
+      "Bash(git commit *)"
     ]
   }
 }
