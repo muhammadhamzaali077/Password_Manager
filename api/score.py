@@ -27,6 +27,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+# Local-dev convenience: load a .env file at project root if present.
+# On Vercel the platform injects env vars directly into os.environ, so
+# this call is a harmless no-op there.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:
+    pass
+
 # ---------------------------------------------------------------------------
 # Error envelope (Constitution IV + VII)
 # ---------------------------------------------------------------------------
