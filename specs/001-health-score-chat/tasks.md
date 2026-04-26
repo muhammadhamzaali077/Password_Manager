@@ -37,9 +37,9 @@ This is a **web application** (Option 2 in plan.md):
 **Purpose**: Bring the two empty apps into existence and wire up tooling.
 
 - [X] T001 Create the top-level project layout per plan.md `Project Structure` (create `frontend/`, `backend/`, and a repo-root `.gitignore` covering `node_modules/`, `.next/`, `__pycache__/`, `.venv/`, `.env*`, `dist/`, `.pytest_cache/`, `playwright-report/`)
-- [ ] T002 Initialize the Next.js 15 app with TypeScript, Tailwind CSS, and the App Router in `frontend/` (run `pnpm create next-app@latest frontend --ts --tailwind --app --no-src-dir=false`; commit the resulting `frontend/package.json`, `frontend/tsconfig.json` with `"strict": true`, `frontend/tailwind.config.ts`, `frontend/postcss.config.js`)
+- [X] T002 Initialize the Next.js 15 app with TypeScript, Tailwind CSS, and the App Router in `frontend/` (run `pnpm create next-app@latest frontend --ts --tailwind --app --no-src-dir=false`; commit the resulting `frontend/package.json`, `frontend/tsconfig.json` with `"strict": true`, `frontend/tailwind.config.ts`, `frontend/postcss.config.js`)
 - [ ] T003 [P] Install and configure shadcn/ui in `frontend/` and generate the `Card`, `Progress`, `Button`, `Input`, and `ScrollArea` primitives into `frontend/src/components/ui/`
-- [ ] T004 [P] Initialize the FastAPI agent skeleton with `uv` in `backend/` (`uv init`; declare Python 3.12; add `fastapi`, `uvicorn[standard]`, `pydantic>=2`, `openai-agents`, `httpx`, `python-dotenv`, `respx`, `pytest`, `pytest-asyncio` in `backend/pyproject.toml`; run `uv sync` so `backend/uv.lock` is committed)
+- [X] T004 [P] Initialize the FastAPI agent skeleton with `uv` in `backend/` (`uv init`; declare Python 3.12; add `fastapi`, `uvicorn[standard]`, `pydantic>=2`, `openai-agents`, `httpx`, `python-dotenv`, `respx`, `pytest`, `pytest-asyncio` in `backend/pyproject.toml`; run `uv sync` so `backend/uv.lock` is committed)
 - [X] T005 [P] Configure ESLint with `eslint-plugin-jsdoc` and the `jsdoc/require-jsdoc` rule for all named functions in `frontend/.eslintrc.json` (Constitution II)
 - [X] T006 [P] Enable Ruff `D101`, `D103` (missing docstring) rules and Black-compatible formatting in `backend/pyproject.toml` under `[tool.ruff]` (Constitution II)
 - [X] T007 [P] Add Vitest + React Testing Library to `frontend/` (`frontend/vitest.config.ts`, `frontend/tests/setup.ts`)
@@ -55,9 +55,9 @@ This is a **web application** (Option 2 in plan.md):
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T011 Add Prisma to `frontend/` (`pnpm add -D prisma`, `pnpm add @prisma/client`, run `pnpm prisma init`); set the `postgresql` provider and `DATABASE_URL` env binding in `frontend/prisma/schema.prisma`
+- [X] T011 Add Prisma to `frontend/` (`pnpm add -D prisma`, `pnpm add @prisma/client`, run `pnpm prisma init`); set the `postgresql` provider and `DATABASE_URL` env binding in `frontend/prisma/schema.prisma`
 - [X] T012 Author the Prisma schema in `frontend/prisma/schema.prisma`: `enum Band { HEALTHY OKAY CRITICAL }`, `model Visitor`, `model ScoreSubmission` with the `@@index([visitorId, createdAt(sort: Desc)])` exactly as specified in `data-model.md`
-- [ ] T013 Generate and apply the initial migration with `pnpm prisma migrate dev --name init` from `frontend/`; commit `frontend/prisma/migrations/`
+- [X] T013 Generate and apply the initial migration with `pnpm prisma migrate dev --name init` from `frontend/`; commit `frontend/prisma/migrations/`
 - [X] T014 [P] Create the Prisma singleton in `frontend/src/lib/prisma.ts` (single `PrismaClient` instance reused across hot reloads)
 - [X] T015 [P] Implement session-cookie helpers in `frontend/src/lib/session.ts` per research R3: `getOrCreateVisitor(req, res)` issues a 22+ char URL-safe random token, sets cookie `pmh_session` with `HttpOnly; Secure; SameSite=Lax; Max-Age=31536000`; reuses on subsequent requests
 - [X] T016 [P] Implement the friendly error envelope helper in `frontend/src/lib/errors.ts` exporting `toEnvelope(code, message)` and a mapper `friendlyMessageFor(code)`; covers `INVALID_INPUT`, `AGENT_TIMEOUT`, `AGENT_FORMAT_ERROR`, `RATE_LIMITED`, `INTERNAL_ERROR` per `contracts/error-envelope.schema.json` (Constitution IV)
