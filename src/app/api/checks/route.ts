@@ -18,95 +18,106 @@ const MAX_HISTORY_PER_VISITOR = 50;
  * that includes the visitor's `previous_score` for US2 acknowledgements.
  * Otherwise it just relays the chat reply to the client.
  *
- * @param request - The incoming Next.js request. Body must conform to
- *   `ChatRequestSchema` (`{ messages: ChatMessage[] }`).
- * @returns On success: either a `{type: "message"}` chat reply or a
- *   `{type: "result"}` score result. On failure: a friendly error
- *   envelope `{code, message}`.
+ * The whole route runs inside a top-level try/catch so any unexpected
+ * exception is surfaced as the friendly INTERNAL_ERROR envelope rather
+ * than escaping to Next.js's default empty-body 500 handler
+ * (Constitution IV).
  */
 export async function POST(request: NextRequest) {
-  let raw: unknown;
   try {
-    raw = await request.json();
-  } catch {
-    return toEnvelope("INVALID_INPUT", 400);
-  }
+    let raw: unknown;
+    try {
+      raw = await request.json();
+    } catch {
+      return toEnvelope("INVALID_INPUT", 400);
+    }
 
-  const parsed = ChatRequestSchema.safeParse(raw);
-  if (!parsed.success) return toEnvelope("INVALID_INPUT", 400);
+    const parsed = ChatRequestSchema.safeParse(raw);
+    if (!parsed.success) return toEnvelope("INVALID_INPUT", 400);
 
-  const { visitorId } = await getOrCreateVisitor();
+    const { visitorId } = await getOrCreateVisitor();
 
-  let agentResponse: ChatTurnResponse;
-  try {
-    agentResponse = await requestChat({ messages: parsed.data.messages });
-  } catch (err) {
-    const e = err as { code?: string; message?: string };
-    const code = (e.code ?? "INTERNAL_ERROR") as
-      | "INVALID_INPUT"
-      | "AGENT_TIMEOUT"
-      | "AGENT_FORMAT_ERROR"
-      | "RATE_LIMITED"
-      | "INTERNAL_ERROR";
-    const status =
-      code === "INVALID_INPUT"
-        ? 400
-        : code === "AGENT_TIMEOUT"
-          ? 504
-          : code === "AGENT_FORMAT_ERROR"
-            ? 502
-            : code === "RATE_LIMITED"
-              ? 429
-              : 500;
-    return toEnvelope(code, status);
-  }
+    let agentResponse: ChatTurnResponse;
+    try {
+      agentResponse = await requestChat({ messages: parsed.data.messages });
+    } catch (err) {
+      const e = err as { code?: string; message?: string };
+      const code = (e.code ?? "INTERNAL_ERROR") as
+        | "INVALID_INPUT"
+        | "AGENT_TIMEOUT"
+        | "AGENT_FORMAT_ERROR"
+        | "RATE_LIMITED"
+        | "INTERNAL_ERROR";
+      const status =
+        code === "INVALID_INPUT"
+          ? 400
+          : code === "AGENT_TIMEOUT"
+            ? 504
+            : code === "AGENT_FORMAT_ERROR"
+              ? 502
+              : code === "RATE_LIMITED"
+                ? 429
+                : 500;
+      return toEnvelope(code, status);
+    }
 
-  if (agentResponse.type === "message") {
-    return NextResponse.json({
-      type: "message",
-      content: agentResponse.content,
+    if (agentResponse.type === "message") {
+      return NextResponse.json({
+        type: "message",
+        content: agentResponse.content,
+      });
+    }
+
+    // Result path — persist and enrich.
+    const previous = await prisma.scoreSubmission.findFirst({
+      where: { visitorId },
+      orderBy: { createdAt: "desc" },
+      select: { score: true },
     });
-  }
 
-  // Result path — persist and enrich.
-  const previous = await prisma.scoreSubmission.findFirst({
-    where: { visitorId },
-    orderBy: { createdAt: "desc" },
-    select: { score: true },
-  });
+    const submission = await prisma.scoreSubmission.create({
+      data: {
+        visitorId,
+        passwordCount: agentResponse.password_count,
+        oldestPasswordAgeMonths: agentResponse.oldest_password_age_months,
+        score: agentResponse.score,
+        band: agentResponse.band,
+        recommendations: agentResponse.recommendations as unknown as Prisma.InputJsonValue,
+      },
+    });
 
-  const submission = await prisma.scoreSubmission.create({
-    data: {
-      visitorId,
-      passwordCount: agentResponse.password_count,
-      oldestPasswordAgeMonths: agentResponse.oldest_password_age_months,
+    // Best-effort prune; failure here must not break the score reply.
+    try {
+      const keepers = await prisma.scoreSubmission.findMany({
+        where: { visitorId },
+        orderBy: { createdAt: "desc" },
+        take: MAX_HISTORY_PER_VISITOR,
+        select: { id: true },
+      });
+      await prisma.scoreSubmission.deleteMany({
+        where: {
+          visitorId,
+          id: { notIn: keepers.map((k) => k.id) },
+        },
+      });
+    } catch (err) {
+      console.error("history prune failed", err);
+    }
+
+    return NextResponse.json({
+      type: "result",
+      id: submission.id,
       score: agentResponse.score,
       band: agentResponse.band,
-      recommendations: agentResponse.recommendations as unknown as Prisma.InputJsonValue,
-    },
-  });
-
-  const keepers = await prisma.scoreSubmission.findMany({
-    where: { visitorId },
-    orderBy: { createdAt: "desc" },
-    take: MAX_HISTORY_PER_VISITOR,
-    select: { id: true },
-  });
-  await prisma.scoreSubmission.deleteMany({
-    where: {
-      visitorId,
-      id: { notIn: keepers.map((k) => k.id) },
-    },
-  });
-
-  return NextResponse.json({
-    type: "result",
-    id: submission.id,
-    score: agentResponse.score,
-    band: agentResponse.band,
-    recommendations: agentResponse.recommendations,
-    message: agentResponse.message,
-    previous_score: previous?.score ?? null,
-    created_at: submission.createdAt.toISOString(),
-  });
+      recommendations: agentResponse.recommendations,
+      message: agentResponse.message,
+      previous_score: previous?.score ?? null,
+      created_at: submission.createdAt.toISOString(),
+    });
+  } catch (err) {
+    // Anything escapes here gets logged for Vercel function logs and
+    // returned as the user-safe envelope (Constitution IV).
+    console.error("/api/checks failed:", err);
+    return toEnvelope("INTERNAL_ERROR", 500);
+  }
 }
