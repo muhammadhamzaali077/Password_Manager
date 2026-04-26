@@ -54,8 +54,7 @@ export function HistoryList({ entries }: HistoryListProps) {
       <CardContent>
         {entries.length === 0 ? (
           <p className="text-sm text-zinc-600">
-            This is your first check — there's nowhere to go but up. Come back
-            any time and we'll track your progress here.
+            {"This is your first check — there's nowhere to go but up. Come back any time and we'll track your progress here."}
           </p>
         ) : (
           <ul className="space-y-2">
